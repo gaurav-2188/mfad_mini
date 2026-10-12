@@ -18,7 +18,6 @@ import io
 from typing import Tuple, Dict, Any
 
 import numpy as np
-import matplotlib.pyplot as plt
 from PIL import Image
 import streamlit as st
 
@@ -79,6 +78,16 @@ def apply_color_transformation(img: np.ndarray, matrix: np.ndarray, clip: bool =
         return np.clip(transformed, 0.0, 255.0).astype(np.uint8)
     return transformed
 
+
+
+def to_pil(img_or_arr) -> Image.Image:
+    """Converts any numpy array or PIL image to an RGB PIL Image safely."""
+    if isinstance(img_or_arr, Image.Image):
+        return img_or_arr.convert("RGB")
+    arr = np.ascontiguousarray(img_or_arr)
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr, 0.0, 255.0).astype(np.uint8)
+    return Image.fromarray(arr, mode="RGB")
 
 def analyze_matrix(matrix: np.ndarray) -> Dict[str, Any]:
     """Computes determinant, condition number, eigenvalues, eigenvectors, and row sums."""
@@ -246,6 +255,12 @@ uploaded_file = st.sidebar.file_uploader("Upload an Image (.jpg, .png)", type=["
 
 if uploaded_file is not None:
     img_pil = Image.open(uploaded_file).convert("RGB")
+    # Resize high-resolution images smoothly if larger than 800px on any dimension
+    max_dim = 800
+    if max(img_pil.size) > max_dim:
+        scale = max_dim / max(img_pil.size)
+        new_size = (int(img_pil.width * scale), int(img_pil.height * scale))
+        img_pil = img_pil.resize(new_size, Image.Resampling.LANCZOS)
     current_img = np.array(img_pil)
     source_label = f"Uploaded: {uploaded_file.name}"
 else:
@@ -273,48 +288,48 @@ with tab_grading:
     
     col_preset, col_reset = st.columns([3, 1])
     with col_preset:
-        selected_preset = st.selectbox("Choose a Filter Preset:", list(PRESETS.keys()), index=0)
+        selected_preset = st.selectbox("Choose a Filter Preset:", list(PRESETS.keys()), index=0, key="filter_preset_select")
     
-    # Session state for interactive matrix grid
-    if "current_matrix" not in st.session_state or st.session_state.get("last_preset") != selected_preset:
-        st.session_state.current_matrix = PRESETS[selected_preset].copy()
-        st.session_state.last_preset = selected_preset
-        
+    preset_mat = PRESETS[selected_preset]
+    # Initialize session state for all 9 matrix cells if not present or if preset changed
+    if "current_preset_loaded" not in st.session_state or st.session_state["current_preset_loaded"] != selected_preset:
+        st.session_state["current_preset_loaded"] = selected_preset
+        for r in range(3):
+            for c in range(3):
+                st.session_state[f"cell_{r}_{c}"] = float(preset_mat[r, c])
+
     with col_reset:
         st.write("")
         st.write("")
         if st.button("Reset Matrix to Preset"):
-            st.session_state.current_matrix = PRESETS[selected_preset].copy()
+            for r in range(3):
+                for c in range(3):
+                    st.session_state[f"cell_{r}_{c}"] = float(preset_mat[r, c])
             st.rerun()
 
-    # Interactive Matrix Editing Grid
-    st.markdown("##### Interactive $3 \\times 3$ Transformation Matrix $M$:")
+    st.markdown("##### Interactive  \times 3$ Transformation Matrix $:")
     col_m1, col_m2, col_m3 = st.columns(3)
-    
-    m_val = st.session_state.current_matrix.copy()
-    
+    m_val = np.zeros((3, 3), dtype=np.float64)
+
     with col_m1:
         st.caption("**Red Output Channel**")
-        m_val[0, 0] = st.number_input("M[0,0] (R → R)", value=float(m_val[0, 0]), step=0.05, format="%.2f", key="m00")
-        m_val[0, 1] = st.number_input("M[0,1] (G → R)", value=float(m_val[0, 1]), step=0.05, format="%.2f", key="m01")
-        m_val[0, 2] = st.number_input("M[0,2] (B → R)", value=float(m_val[0, 2]), step=0.05, format="%.2f", key="m02")
-        
+        m_val[0, 0] = st.number_input("M[0,0] (R → R)", step=0.05, format="%.2f", key="cell_0_0")
+        m_val[0, 1] = st.number_input("M[0,1] (G → R)", step=0.05, format="%.2f", key="cell_0_1")
+        m_val[0, 2] = st.number_input("M[0,2] (B → R)", step=0.05, format="%.2f", key="cell_0_2")
+
     with col_m2:
         st.caption("**Green Output Channel**")
-        m_val[1, 0] = st.number_input("M[1,0] (R → G)", value=float(m_val[1, 0]), step=0.05, format="%.2f", key="m10")
-        m_val[1, 1] = st.number_input("M[1,1] (G → G)", value=float(m_val[1, 1]), step=0.05, format="%.2f", key="m11")
-        m_val[1, 2] = st.number_input("M[1,2] (B → G)", value=float(m_val[1, 2]), step=0.05, format="%.2f", key="m12")
-        
+        m_val[1, 0] = st.number_input("M[1,0] (R → G)", step=0.05, format="%.2f", key="cell_1_0")
+        m_val[1, 1] = st.number_input("M[1,1] (G → G)", step=0.05, format="%.2f", key="cell_1_1")
+        m_val[1, 2] = st.number_input("M[1,2] (B → G)", step=0.05, format="%.2f", key="cell_1_2")
+
     with col_m3:
         st.caption("**Blue Output Channel**")
-        m_val[2, 0] = st.number_input("M[2,0] (R → B)", value=float(m_val[2, 0]), step=0.05, format="%.2f", key="m20")
-        m_val[2, 1] = st.number_input("M[2,1] (G → B)", value=float(m_val[2, 1]), step=0.05, format="%.2f", key="m21")
-        m_val[2, 2] = st.number_input("M[2,2] (B → B)", value=float(m_val[2, 2]), step=0.05, format="%.2f", key="m22")
+        m_val[2, 0] = st.number_input("M[2,0] (R → B)", step=0.05, format="%.2f", key="cell_2_0")
+        m_val[2, 1] = st.number_input("M[2,1] (G → B)", step=0.05, format="%.2f", key="cell_2_1")
+        m_val[2, 2] = st.number_input("M[2,2] (B → B)", step=0.05, format="%.2f", key="cell_2_2")
 
-    st.session_state.current_matrix = m_val
     matrix_props = analyze_matrix(m_val)
-    
-    # Linear Algebra Diagnostics Card
     st.markdown("---")
     st.markdown("##### 🔬 Spectral Properties & Exposure Indicators:")
     d_col1, d_col2, d_col3, d_col4 = st.columns(4)
@@ -342,9 +357,9 @@ with tab_grading:
     # Visual Display: Side-by-Side Images
     img_col1, img_col2 = st.columns(2)
     with img_col1:
-        st.image(current_img, caption="Original RGB Image", width='stretch')
+        st.image(to_pil(current_img), caption="Original RGB Image", use_container_width=True, output_format="JPEG")
     with img_col2:
-        st.image(graded_img, caption="Linearly Transformed Output Image (I' = I · M^T)", width='stretch')
+        st.image(to_pil(graded_img), caption="Linearly Transformed Output Image (I' = I · M^T)", use_container_width=True, output_format="JPEG")
 
 
 
@@ -390,11 +405,11 @@ with tab_crypto:
     # Display 3-Stage Pipeline
     c_img1, c_img2, c_img3 = st.columns(3)
     with c_img1:
-        st.image(current_img, caption="1. Original Plaintext P", width='stretch')
+        st.image(to_pil(current_img), caption="1. Original Plaintext P", use_container_width=True, output_format="JPEG")
     with c_img2:
-        st.image(display_scramble, caption="2. Scrambled Cipher P' = K @ P", width='stretch')
+        st.image(to_pil(display_scramble), caption="2. Scrambled Cipher P' = K @ P", use_container_width=True, output_format="JPEG")
     with c_img3:
-        st.image(decrypted_img, caption="3. Recovered Image P_rec = K^(-1) @ P'", width='stretch')
+        st.image(to_pil(decrypted_img), caption="3. Recovered Image P_rec = K^(-1) @ P'", use_container_width=True, output_format="JPEG")
 
     # Verification Banner
     st.markdown("---")
@@ -404,7 +419,7 @@ with tab_crypto:
     with v_col2:
         st.metric("PSNR (Reconstruction Quality)", "∞ dB" if np.isinf(rec_psnr) else f"{rec_psnr:.2f} dB")
     with v_col3:
-        st.success("✅ **Mathematical Theorem Confirmed:**\n\nSince $\\det(K) \\neq 0$ and the matrix is well-conditioned ($\kappa = 1.21$), information is **100% preserved** and fully recoverable with zero distortion.")
+        st.success("✅ **Mathematical Theorem Confirmed:**\n\nSince $\det(K) \neq 0$ and the matrix is well-conditioned ($\kappa = 1.21$), information is **100% preserved** and fully recoverable with zero distortion.")
 
     with st.expander("🔍 Show Computed Inverse Matrix K^(-1)"):
         st.write("Computed Inverse Matrix $K^{-1}$ using `np.linalg.inv`:")
@@ -445,11 +460,11 @@ with tab_singular:
     # Visual Comparison
     f_col1, f_col2, f_col3 = st.columns(3)
     with f_col1:
-        st.image(current_img, caption="1. Original Image", width='stretch')
+        st.image(to_pil(current_img), caption="1. Original Image", use_container_width=True, output_format="JPEG")
     with f_col2:
-        st.image(sepia_filtered, caption="2. Sepia Filtered (Lab PDF)", width='stretch')
+        st.image(to_pil(sepia_filtered), caption="2. Sepia Filtered (Lab PDF)", use_container_width=True, output_format="JPEG")
     with f_col3:
-        st.image(failed_recovery, caption="3. Attempted Recovery via inv(Sepia)", width='stretch')
+        st.image(to_pil(failed_recovery), caption="3. Attempted Recovery via inv(Sepia)", use_container_width=True, output_format="JPEG")
 
     # Explanation Callout
     st.markdown("---")
